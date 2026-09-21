@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# spec documents (not part of the submission)
+New Microsoft Word Document.docx
+~$*.docx
+Robot work allocation system_EE.pdf
