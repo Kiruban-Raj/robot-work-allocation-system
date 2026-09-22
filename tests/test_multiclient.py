@@ -21,6 +21,16 @@ class TestParseClientHours:
     def test_accepts_bracketed_list_notation_from_the_bonus_example(self):
         assert parse_client_hours("[16, 10, 22, 7]") == [16, 10, 22, 7]
 
+    def test_malformed_bracket_placement_is_rejected_not_silently_misparsed(self):
+        # Regression test: an earlier fix stripped every '[' and ']' anywhere
+        # in the string, so "16]10[" became "1610" - a single wrong number,
+        # silently, instead of an error. Only a single wrapping pair is
+        # stripped now; anything else must fail cleanly.
+        with pytest.raises(InvalidInputError):
+            parse_client_hours("16]10[")
+        with pytest.raises(InvalidInputError):
+            parse_client_hours("[[16]]")
+
     def test_rejects_non_positive_values(self):
         with pytest.raises(InvalidInputError):
             parse_client_hours("12, -3, 10")

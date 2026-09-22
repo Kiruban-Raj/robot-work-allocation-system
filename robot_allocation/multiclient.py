@@ -6,13 +6,17 @@ from .errors import AllocationError, InvalidInputError
 from .standby import StandbyActivationService
 
 _SEPARATORS = re.compile(r"[,\s]+")
-_BRACKETS = str.maketrans("", "", "[]")
 
 
 def parse_client_hours(raw: str) -> List[int]:
     # Accept the bonus section's own notation, e.g. "[16, 10, 22, 7]", as well
-    # as the plain comma/space forms shown for Level 4.
-    cleaned = raw.translate(_BRACKETS)
+    # as the plain comma/space forms shown for Level 4. Only a single
+    # wrapping pair of brackets is stripped - malformed bracket placement
+    # elsewhere in the string is left to fail int() parsing below, rather
+    # than being silently stripped and misread as different numbers.
+    cleaned = raw.strip()
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        cleaned = cleaned[1:-1]
     tokens = [tok for tok in _SEPARATORS.split(cleaned.strip()) if tok]
     if not tokens:
         raise InvalidInputError()

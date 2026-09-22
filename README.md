@@ -67,8 +67,17 @@ python main.py --bravo 5 --charlie 5 --delta 5 --hours "12,16,17,10,21" --summar
 ```
 
 Omitting `--level` runs Level 1 and Level 2 side by side with the required cost
-comparison, plus Level 3 if standby counts are given. Multiple `--hours` values
-(comma or space separated) automatically switch to the Level 4 multi-client flow.
+comparison - unless the active fleet alone can't reach the requested hours, in
+which case that comparison is skipped (it wouldn't be meaningful) and it falls
+straight through to Level 3's standby logic instead. Multiple `--hours` values
+(comma or space separated, optionally wrapped in brackets like the bonus
+section's own `[16, 10, 22, 7]` notation) automatically switch to the Level 4
+multi-client flow.
+
+**Exit codes:** 0 on success. For a Level 4 batch, 0 as long as at least one
+client was served; 1 only if every client in the batch failed. 1 for any
+single-request failure (insufficient capacity, invalid input, no robots
+available).
 
 ## Tests
 
@@ -88,3 +97,13 @@ paperwork — while building the solver's tie-breaking logic, the test suite
 caught three real bugs (two allocations that hit the target hours but picked
 the wrong combination) before this was called done, and those cases are now
 permanently pinned down as regression tests.
+
+**Note on the later review pass:** after the initial implementation, a
+dedicated re-check against every rule in the spec (not just re-reading the
+code, but deliberately trying to break each documented constraint) found six
+more edge-case bugs — negative counts crashing instead of erroring cleanly,
+the default flow not falling through to Level 3, a float-formatted cost in
+the summary, a Level 4 batch aborting entirely when a client hit a fully
+drained pool, the batch exit code never reflecting total failure, and the
+bonus section's bracketed input notation not parsing. All six are fixed with
+dedicated regression tests (suite: 48 → 58).
