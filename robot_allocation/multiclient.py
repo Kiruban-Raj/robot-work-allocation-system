@@ -2,14 +2,18 @@ import re
 from typing import List, Tuple
 
 from .domain import ClientAllocation, Inventory
-from .errors import InsufficientCapacityError, InvalidInputError
+from .errors import AllocationError, InvalidInputError
 from .standby import StandbyActivationService
 
 _SEPARATORS = re.compile(r"[,\s]+")
+_BRACKETS = str.maketrans("", "", "[]")
 
 
 def parse_client_hours(raw: str) -> List[int]:
-    tokens = [tok for tok in _SEPARATORS.split(raw.strip()) if tok]
+    # Accept the bonus section's own notation, e.g. "[16, 10, 22, 7]", as well
+    # as the plain comma/space forms shown for Level 4.
+    cleaned = raw.translate(_BRACKETS)
+    tokens = [tok for tok in _SEPARATORS.split(cleaned.strip()) if tok]
     if not tokens:
         raise InvalidInputError()
 
@@ -44,7 +48,10 @@ class MultiClientAllocator:
         for index, hours in priority_order:
             try:
                 result = self._standby_service.allocate(remaining_active, remaining_standby, hours)
-            except InsufficientCapacityError as exc:
+            except AllocationError as exc:
+                # Any failure for this one client (insufficient capacity, or the
+                # pool being fully drained by higher-priority clients already
+                # served) is skipped, not fatal to the rest of the batch.
                 results_by_index[index] = ClientAllocation(requested_hours=hours, error=str(exc))
                 continue
 

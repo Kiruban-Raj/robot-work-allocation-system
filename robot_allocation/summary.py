@@ -7,7 +7,7 @@ from .domain import ALL_TYPES, ClientAllocation, Inventory, RobotType
 @dataclass
 class SummaryReport:
     total_robots_used: Dict[RobotType, int] = field(default_factory=dict)
-    total_charging_cost: float = 0.0
+    total_charging_cost: int = 0
     category_utilization: Dict[RobotType, float] = field(default_factory=dict)
 
     @property
@@ -24,7 +24,7 @@ class SummaryReport:
         original_standby: Inventory,
     ) -> "SummaryReport":
         used = {t: 0 for t in ALL_TYPES}
-        total_cost = 0.0
+        total_cost = 0
 
         for client in results:
             if not client.success:

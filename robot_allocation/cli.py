@@ -3,7 +3,7 @@ import sys
 from typing import List
 
 from .domain import ALL_TYPES, AllocationResult, Inventory
-from .errors import AllocationError
+from .errors import AllocationError, InvalidInputError
 from .multiclient import MultiClientAllocator, parse_client_hours
 from .standby import StandbyActivationService
 from .strategies import CostOptimalStrategy, DiversityFirstStrategy, compare_strategies
@@ -57,18 +57,21 @@ def run_interactive() -> int:
             if _prompt_yes_no("\nDo any clients need standby robots activated? (y/n): "):
                 print("\nEnter number of standby robots available:")
                 standby = Inventory({t: _prompt_robot_count(f"{t.name}: ") for t in ALL_TYPES})
-            _run_multi_client(active, standby, hours_list, show_summary=True)
-            return 0
+            return _run_multi_client(active, standby, hours_list, show_summary=True)
 
         requested_hours = hours_list[0]
-        level1_result, level2_result, cost_difference = compare_strategies(active, requested_hours)
-        _print_level1_result(level1_result, requested_hours)
-        _print_level2_result(level2_result, requested_hours)
-        _print_comparison(level1_result, level2_result, cost_difference)
-
         active_capacity = active.total_hours()
-        if active_capacity < requested_hours:
-            print("\nActive capacity is insufficient - checking standby robots.")
+
+        if active_capacity >= requested_hours:
+            level1_result, level2_result, cost_difference = compare_strategies(active, requested_hours)
+            _print_level1_result(level1_result, requested_hours)
+            _print_level2_result(level2_result, requested_hours)
+            _print_comparison(level1_result, level2_result, cost_difference)
+        else:
+            # Level 1/2 are pure active-fleet strategies - if active alone can't
+            # reach the target, that comparison doesn't apply. Go straight to
+            # Level 3 instead of letting compare_strategies raise first.
+            print("\nActive capacity is insufficient for a Level 1/2 comparison - checking standby robots.")
             print("\nEnter number of standby robots available:")
             standby = Inventory({t: _prompt_robot_count(f"{t.name}: ") for t in ALL_TYPES})
             standby_result = StandbyActivationService().allocate(active, standby, requested_hours)
@@ -99,6 +102,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _inventories_from_args(args: argparse.Namespace):
+    raw_counts = (
+        args.bravo, args.charlie, args.delta,
+        args.standby_bravo, args.standby_charlie, args.standby_delta,
+    )
+    if any(count < 0 for count in raw_counts):
+        raise InvalidInputError("Error: Robot counts must be non-negative integers.")
+
     active = Inventory({
         ALL_TYPES[0]: args.bravo,
         ALL_TYPES[1]: args.charlie,
@@ -118,8 +128,7 @@ def run_non_interactive(args: argparse.Namespace) -> int:
         hours_list = parse_client_hours(args.hours)
 
         if len(hours_list) > 1 or args.level == 4:
-            _run_multi_client(active, standby, hours_list, show_summary=args.summary)
-            return 0
+            return _run_multi_client(active, standby, hours_list, show_summary=args.summary)
 
         requested_hours = hours_list[0]
 
@@ -133,13 +142,22 @@ def run_non_interactive(args: argparse.Namespace) -> int:
             result = StandbyActivationService().allocate(active, standby, requested_hours)
             _print_standby_result(result, active.total_hours(), requested_hours)
         else:
-            level1_result, level2_result, cost_difference = compare_strategies(active, requested_hours)
-            _print_level1_result(level1_result, requested_hours)
-            _print_level2_result(level2_result, requested_hours)
-            _print_comparison(level1_result, level2_result, cost_difference)
-            if not standby.is_empty():
+            active_capacity = active.total_hours()
+            if active_capacity >= requested_hours:
+                level1_result, level2_result, cost_difference = compare_strategies(active, requested_hours)
+                _print_level1_result(level1_result, requested_hours)
+                _print_level2_result(level2_result, requested_hours)
+                _print_comparison(level1_result, level2_result, cost_difference)
+                if not standby.is_empty():
+                    standby_result = StandbyActivationService().allocate(active, standby, requested_hours)
+                    _print_standby_result(standby_result, active_capacity, requested_hours)
+            else:
+                # Level 1/2 are pure active-fleet strategies - skip the comparison
+                # and go straight to Level 3 rather than letting compare_strategies
+                # raise InsufficientCapacityError before standby is even considered.
+                print("\nActive capacity is insufficient for a Level 1/2 comparison - checking standby robots.")
                 standby_result = StandbyActivationService().allocate(active, standby, requested_hours)
-                _print_standby_result(standby_result, active.total_hours(), requested_hours)
+                _print_standby_result(standby_result, active_capacity, requested_hours)
 
         return 0
     except AllocationError as exc:
@@ -147,7 +165,7 @@ def run_non_interactive(args: argparse.Namespace) -> int:
         return 1
 
 
-def _run_multi_client(active: Inventory, standby: Inventory, hours_list: List[int], show_summary: bool) -> None:
+def _run_multi_client(active: Inventory, standby: Inventory, hours_list: List[int], show_summary: bool) -> int:
     results, _final_active, _final_standby = MultiClientAllocator().allocate_all(active, standby, hours_list)
 
     for client in results:
@@ -160,6 +178,11 @@ def _run_multi_client(active: Inventory, standby: Inventory, hours_list: List[in
     if show_summary:
         report = SummaryReport.from_results(results, active, standby)
         _print_summary(report)
+
+    # A batch where every client failed shouldn't look like a successful run
+    # to a script checking the exit code, even though individual client
+    # failures are otherwise "skip and continue," not fatal.
+    return 0 if any(client.success for client in results) else 1
 
 
 # ---------------------------------------------------------------------------
